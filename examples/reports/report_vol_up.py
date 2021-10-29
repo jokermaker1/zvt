@@ -2,14 +2,16 @@
 import logging
 import time
 
-import eastmoneypy
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from examples.reports import stocks_with_info
+from examples.utils import add_to_eastmoney
 from zvt import init_log, zvt_config
 from zvt.api import get_top_volume_entities
+from zvt.api.kdata import get_latest_kdata_date
+from zvt.contract import AdjustType
 from zvt.contract.api import get_entities
-from zvt.domain import Stock, Stock1dHfqKdata
+from zvt.domain import Stock
 from zvt.factors import VolumeUpMaFactor
 from zvt.factors.target_selector import TargetSelector, SelectMode
 from zvt.informer.informer import EmailInformer
@@ -27,15 +29,9 @@ def report_vol_up():
         email_action = EmailInformer()
 
         try:
-            # 抓取k线数据
-            # StockTradeDay.record_data(provider='joinquant')
-            # Stock1dKdata.record_data(provider='joinquant')
+            target_date = get_latest_kdata_date(entity_type='stock', adjust_type=AdjustType.hfq)
 
-            latest_day: Stock1dHfqKdata = Stock1dHfqKdata.query_data(order=Stock1dHfqKdata.timestamp.desc(), limit=1,
-                                                                     return_type='domain')
-            target_date = latest_day[0].timestamp
-
-            start_timestamp = next_date(target_date, -50)
+            start_timestamp = next_date(target_date, -30)
             # 成交量
             vol_df = get_top_volume_entities(entity_type='stock',
                                              start_timestamp=start_timestamp,
@@ -48,10 +44,12 @@ def report_vol_up():
             my_selector = TargetSelector(start_timestamp=start, end_timestamp=target_date,
                                          select_mode=SelectMode.condition_or)
             # add the factors
-            factor1 = VolumeUpMaFactor(entity_ids=current_entity_pool, start_timestamp=start, end_timestamp=target_date,
-                                       windows=[120, 250], over_mode='or')
+            tech_factor = VolumeUpMaFactor(entity_ids=current_entity_pool, start_timestamp=start,
+                                           end_timestamp=target_date,
+                                           windows=[120, 250], over_mode='or', up_intervals=50,
+                                           turnover_threshold=400000000)
 
-            my_selector.add_factor(factor1)
+            my_selector.add_factor(tech_factor)
 
             my_selector.run()
 
@@ -64,13 +62,8 @@ def report_vol_up():
                                       return_type='domain')
                 # add them to eastmoney
                 try:
-                    try:
-                        eastmoneypy.del_group('tech')
-                    except:
-                        pass
-                    eastmoneypy.create_group('tech')
-                    for stock in stocks:
-                        eastmoneypy.add_to_group(stock.code, group_name='tech')
+                    codes = [stock.code for stock in stocks]
+                    add_to_eastmoney(codes=codes, entity_type='stock', group='tech')
                 except Exception as e:
                     email_action.send_message(zvt_config['email_username'], f'report_vol_up error',
                                               'report_vol_up error:{}'.format(e))

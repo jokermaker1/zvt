@@ -2,9 +2,9 @@
 import logging
 import time
 
-import eastmoneypy
 from apscheduler.schedulers.background import BackgroundScheduler
 
+from examples.utils import add_to_eastmoney
 from zvt import init_log, zvt_config
 from zvt.domain import Block, Block1dKdata, BlockCategory
 from zvt.informer.informer import EmailInformer
@@ -16,7 +16,7 @@ sched = BackgroundScheduler()
 
 
 # 自行更改定定时运行时间
-@sched.scheduled_job('cron', hour=17, minute=00, day_of_week=5)
+@sched.scheduled_job('cron', hour=16, minute=00, day_of_week='mon-fri')
 def record_block():
     while True:
         email_action = EmailInformer()
@@ -36,12 +36,7 @@ def record_block():
 
             # add them to eastmoney
             try:
-                try:
-                    eastmoneypy.create_group('概念')
-                except:
-                    pass
-                for code in df['code']:
-                    eastmoneypy.add_to_group(code, group_name='概念', entity_type='block')
+                add_to_eastmoney(codes=df['code'], entity_type='block', group='概念', over_write=False)
             except Exception as e:
                 email_action.send_message(zvt_config['email_username'], f'report_concept error',
                                           'report_concept error:{}'.format(e))
